@@ -15,6 +15,7 @@ A full-featured Arabic-first personal finance management PWA built with React, S
 
 ## Prerequisites
 
+
 - Node.js 18+
 - A [Supabase](https://supabase.com) project
 
