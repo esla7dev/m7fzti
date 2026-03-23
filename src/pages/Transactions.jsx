@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
+import { supabase } from "@/api/supabaseClient";
 import { transactionService } from "@/api/services/transactionService";
-import { walletService } from "@/api/services/walletService";
 import { budgetService } from "@/api/services/budgetService";
 import { notificationService } from "@/api/services/notificationService";
 import PageHeader from "../components/PageHeader";
@@ -84,38 +84,33 @@ export default function TransactionsPage() {
 
   const handleAddTransaction = async (transactionData) => {
     try {
-      const transaction = await transactionService.create(user.id, transactionData);
-      
-      // Update wallet balance with fees
+      // Calculate fee for the source wallet
       const wallet = wallets.find(w => w.id === transactionData.wallet_id);
-      if (wallet) {
-        let newBalance = wallet.balance;
-        const fee = calculateFee(wallet, transactionData.amount, transactionData.type === 'transfer');
-        
-        if (transactionData.type === 'income') {
-          newBalance += transactionData.amount - fee;
-        } else if (transactionData.type === 'expense') {
-          newBalance -= (transactionData.amount + fee);
-        } else if (transactionData.type === 'transfer') {
-          newBalance -= (transactionData.amount + fee);
-          
-          // Update destination wallet
-          if (transactionData.to_wallet_id) {
-            const toWallet = wallets.find(w => w.id === transactionData.to_wallet_id);
-            if (toWallet) {
-              await walletService.update(toWallet.id, { 
-                balance: toWallet.balance + transactionData.amount 
-              });
-            }
-          }
-        }
-        
-        await walletService.update(wallet.id, { balance: newBalance });
-      }
+      const fee = calculateFee(wallet, transactionData.amount, transactionData.type === 'transfer');
+
+      // Use atomic RPC to create transaction + update wallet balances in one DB transaction
+      const { data: txnJson, error: rpcError } = await supabase.rpc('perform_transaction', {
+        p_user_id: user.id,
+        p_title: transactionData.title,
+        p_amount: transactionData.amount,
+        p_type: transactionData.type,
+        p_category: transactionData.category || null,
+        p_wallet_id: transactionData.wallet_id,
+        p_to_wallet_id: transactionData.to_wallet_id || null,
+        p_date: transactionData.date || null,
+        p_notes: transactionData.notes || null,
+        p_recurring: transactionData.recurring || false,
+        p_recurring_frequency: transactionData.recurring ? (transactionData.recurring_frequency || null) : null,
+        p_fee: fee,
+        p_to_wallet_amount: transactionData.to_wallet_id ? transactionData.amount : null,
+      });
+
+      if (rpcError) throw rpcError;
+      const transaction = txnJson;
+
       // Check budget alerts for expense transactions
       if (transactionData.type === 'expense' && userSettings?.notifications_enabled !== false) {
         const EXPENSE_CATS = Object.fromEntries(allCategories.map(c => [c.key, c.label]));
-        // Budget alerts
         if (userSettings?.budget_alerts !== false) {
           try {
             const budget = await budgetService.getByCategory(user.id, transactionData.category);
@@ -166,70 +161,41 @@ export default function TransactionsPage() {
       const updatedTx = { ...transactionData, amount: parseFloat(transactionData.amount) };
       const originalTx = { ...editingTransaction };
       
-      // Use a Map to track balance changes for all affected wallets to prevent race conditions or incorrect calculations
-      // if multiple wallets are involved (e.g., transfers) or if the wallet itself changes.
-      const walletUpdates = new Map();
-      wallets.forEach(w => walletUpdates.set(w.id, w.balance));
-
-      // 1. Revert original transaction from the calculated balances
-      const fromWalletOriginal = wallets.find(w => w.id === originalTx.wallet_id);
-      if (fromWalletOriginal) {
-        let currentBalance = walletUpdates.get(fromWalletOriginal.id);
-        const fee = calculateFee(fromWalletOriginal, originalTx.amount, originalTx.type === 'transfer');
-
-        if (originalTx.type === 'income') currentBalance -= (originalTx.amount - fee);
-        else if (originalTx.type === 'expense') currentBalance += (originalTx.amount + fee);
-        else if (originalTx.type === 'transfer') {
-            currentBalance += (originalTx.amount + fee);
-            if (originalTx.to_wallet_id) {
-                const toWalletOriginal = wallets.find(w => w.id === originalTx.to_wallet_id);
-                if (toWalletOriginal && walletUpdates.has(toWalletOriginal.id)) {
-                    let toBalance = walletUpdates.get(toWalletOriginal.id);
-                    walletUpdates.set(toWalletOriginal.id, toBalance - originalTx.amount);
-                }
-            }
-        }
-        walletUpdates.set(fromWalletOriginal.id, currentBalance);
-      }
-
-      // 2. Apply new transaction to the calculated balances
-      const fromWalletNew = wallets.find(w => w.id === updatedTx.wallet_id);
-      if (fromWalletNew) {
-        let currentBalance = walletUpdates.get(fromWalletNew.id);
-        const fee = calculateFee(fromWalletNew, updatedTx.amount, updatedTx.type === 'transfer');
-
-        if (updatedTx.type === 'income') currentBalance += (updatedTx.amount - fee);
-        else if (updatedTx.type === 'expense') currentBalance -= (updatedTx.amount + fee);
-        else if (updatedTx.type === 'transfer') {
-            currentBalance -= (updatedTx.amount + fee);
-            if (updatedTx.to_wallet_id) {
-                const toWalletNew = wallets.find(w => w.id === updatedTx.to_wallet_id);
-                if (toWalletNew && walletUpdates.has(toWalletNew.id)) {
-                    let toBalance = walletUpdates.get(toWalletNew.id);
-                    walletUpdates.set(toWalletNew.id, toBalance + updatedTx.amount);
-                }
-            }
-        }
-        walletUpdates.set(fromWalletNew.id, currentBalance);
-      }
+      // Delete the original and create a new one atomically to recalculate balances
+      // Step 1: Reverse original transaction
+      const origWallet = wallets.find(w => w.id === originalTx.wallet_id);
+      const origFee = calculateFee(origWallet, originalTx.amount, originalTx.type === 'transfer');
       
-      // 3. Commit all updates to the database
-      const updatePromises = [];
-      for (const [walletId, newBalance] of walletUpdates.entries()) {
-        const currentWalletState = wallets.find(w => w.id === walletId);
-        // Only update if the balance has actually changed
-        if (currentWalletState && currentWalletState.balance !== newBalance) {
-          updatePromises.push(walletService.update(walletId, { balance: newBalance }));
-        }
-      }
-      
-      updatePromises.push(transactionService.update(originalTx.id, updatedTx));
-      
-      await Promise.all(updatePromises);
+      const { error: delError } = await supabase.rpc('delete_transaction_atomic', {
+        p_user_id: user.id,
+        p_transaction_id: originalTx.id,
+        p_fee: origFee,
+      });
+      if (delError) throw delError;
+
+      // Step 2: Create new transaction with updated data
+      const newWallet = wallets.find(w => w.id === updatedTx.wallet_id);
+      const newFee = calculateFee(newWallet, updatedTx.amount, updatedTx.type === 'transfer');
+
+      const { error: createError } = await supabase.rpc('perform_transaction', {
+        p_user_id: user.id,
+        p_title: updatedTx.title,
+        p_amount: updatedTx.amount,
+        p_type: updatedTx.type,
+        p_category: updatedTx.category || null,
+        p_wallet_id: updatedTx.wallet_id,
+        p_to_wallet_id: updatedTx.to_wallet_id || null,
+        p_date: updatedTx.date || null,
+        p_notes: updatedTx.notes || null,
+        p_recurring: updatedTx.recurring || false,
+        p_recurring_frequency: updatedTx.recurring ? (updatedTx.recurring_frequency || null) : null,
+        p_fee: newFee,
+        p_to_wallet_amount: updatedTx.to_wallet_id ? updatedTx.amount : null,
+      });
+      if (createError) throw createError;
       
       setEditingTransaction(null);
       refetchAll();
-      
       toast.success("Transaction updated successfully");
 
     } catch (error) {
@@ -242,35 +208,19 @@ export default function TransactionsPage() {
     try {
       if (!deletingTransaction) return;
 
-      const { id, type, amount, wallet_id, to_wallet_id } = deletingTransaction;
+      const { id, type, amount, wallet_id } = deletingTransaction;
       const fromWallet = wallets.find(w => w.id === wallet_id);
-      
-      // Reverse the transaction amount from the wallet(s)
-      if (fromWallet) {
-        let newFromBalance = fromWallet.balance;
-        const fee = calculateFee(fromWallet, amount, type === 'transfer');
+      const fee = calculateFee(fromWallet, amount, type === 'transfer');
 
-        if (type === 'income') {
-          newFromBalance -= (amount - fee);
-        } else if (type === 'expense') {
-          newFromBalance += (amount + fee);
-        } else if (type === 'transfer') {
-          newFromBalance += (amount + fee);
-          
-          if (to_wallet_id) {
-            const toWallet = wallets.find(w => w.id === to_wallet_id);
-            if (toWallet) {
-              await walletService.update(toWallet.id, { balance: toWallet.balance - amount });
-            }
-          }
-        }
-        await walletService.update(fromWallet.id, { balance: newFromBalance });
-      }
+      const { error } = await supabase.rpc('delete_transaction_atomic', {
+        p_user_id: user.id,
+        p_transaction_id: id,
+        p_fee: fee,
+      });
+      if (error) throw error;
 
-      await transactionService.delete(id);
       setDeletingTransaction(null);
       refetchAll();
-      
       toast.success("Transaction deleted successfully");
     } catch (error) {
       console.error("Error deleting transaction:", error);

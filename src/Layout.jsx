@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { Home, Wallet, ArrowLeftRight, TrendingUp, Settings } from "lucide-react";
@@ -43,31 +43,18 @@ export default function Layout({ children, currentPageName: _currentPageName }) 
     accent: userSettings?.accent_color || '#34d399',
   };
 
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--color-primary', currentColors.primary);
+    root.style.setProperty('--color-secondary', currentColors.secondary);
+    root.style.setProperty('--color-accent', currentColors.accent);
+    root.style.setProperty('--color-primary-rgb', hexToRgb(currentColors.primary));
+    root.style.setProperty('--color-secondary-rgb', hexToRgb(currentColors.secondary));
+    root.style.setProperty('--color-accent-rgb', hexToRgb(currentColors.accent));
+  }, [currentColors.primary, currentColors.secondary, currentColors.accent]);
+
   return (
     <div className={`${theme} min-h-screen bg-gray-50 dark:bg-gray-900`} dir="rtl" style={{ overscrollBehavior: 'none' }}>
-      <style>
-        {`
-          :root {
-            --color-primary: ${currentColors.primary};
-            --color-secondary: ${currentColors.secondary};
-            --color-accent: ${currentColors.accent};
-            --color-primary-rgb: ${hexToRgb(currentColors.primary)};
-            --color-secondary-rgb: ${hexToRgb(currentColors.secondary)};
-            --color-accent-rgb: ${hexToRgb(currentColors.accent)};
-          }
-          
-          .bg-primary { background-color: var(--color-primary) !important; }
-          .bg-secondary { background-color: var(--color-secondary) !important; }
-          .bg-accent { background-color: var(--color-accent) !important; }
-          .text-primary { color: var(--color-primary) !important; }
-          .text-secondary { color: var(--color-secondary) !important; }
-          .text-accent { color: var(--color-accent) !important; }
-          .border-primary { border-color: var(--color-primary) !important; }
-          .hover\\:bg-primary:hover { background-color: var(--color-primary) !important; }
-          .bg-primary\\/10 { background-color: rgba(var(--color-primary-rgb), 0.1) !important; }
-          .bg-primary\\/20 { background-color: rgba(var(--color-primary-rgb), 0.2) !important; }
-        `}
-      </style>
 
       {/* Main Content */}
       <main className="pb-20" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 5rem)', overscrollBehavior: 'none' }}>

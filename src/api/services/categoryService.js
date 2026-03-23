@@ -34,13 +34,14 @@ export const categoryService = {
     }
   },
 
-  /** Update name/emoji of an existing custom category. */
-  async update(id, { name, emoji }) {
+  /** Update name/emoji of an existing custom category (scoped to user). */
+  async update(userId, id, { name, emoji }) {
     try {
       const { data, error } = await supabase
         .from('user_categories')
         .update({ name: name.trim(), emoji: emoji || '📁' })
         .eq('id', id)
+        .eq('user_id', userId)
         .select();
 
       if (error) throw error;
@@ -77,13 +78,14 @@ export const categoryService = {
     }
   },
 
-  /** Delete a custom category by id. Callers must check usage first. */
-  async delete(id) {
+  /** Delete a custom category by id (scoped to user). Callers must check usage first. */
+  async delete(userId, id) {
     try {
       const { error } = await supabase
         .from('user_categories')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('user_id', userId);
 
       if (error) throw error;
     } catch (error) {

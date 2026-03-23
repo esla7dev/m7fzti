@@ -17,6 +17,8 @@ function getNextDate(dateStr, frequency) {
  * Process recurring transactions for a user.
  * Checks all recurring transactions and creates new instances
  * for any that are due based on last_triggered_date + frequency.
+ * Uses conditional update on last_triggered_date for idempotency
+ * (prevents duplicate creation from concurrent tabs).
  * Returns the number of transactions created.
  */
 export async function processRecurringTransactions(userId) {
@@ -39,7 +41,26 @@ export async function processRecurringTransactions(userId) {
       let nextDue = getNextDate(lastDate, txn.recurring_frequency);
       if (!nextDue || nextDue > today) continue;
 
-      // Create all missed occurrences up to today
+      // Calculate the final triggered date first
+      let finalDate = lastDate;
+      let check = getNextDate(lastDate, txn.recurring_frequency);
+      while (check && check <= today) {
+        finalDate = check;
+        check = getNextDate(check, txn.recurring_frequency);
+      }
+
+      // Atomically claim this recurring txn by conditionally updating last_triggered_date.
+      // If another tab already advanced it, this update matches 0 rows and we skip.
+      const { data: claimed } = await supabase
+        .from('transactions')
+        .update({ last_triggered_date: finalDate })
+        .eq('id', txn.id)
+        .eq('last_triggered_date', txn.last_triggered_date ?? txn.date)
+        .select('id');
+
+      if (!claimed?.length) continue; // Another tab already processed this
+
+      // Now create all missed occurrences up to today
       while (nextDue && nextDue <= today) {
         const { id, user_id, created_at, updated_date, last_triggered_date, recurring, recurring_frequency, ...txData } = txn;
         await transactionService.create(userId, {
@@ -50,20 +71,6 @@ export async function processRecurringTransactions(userId) {
         created++;
         nextDue = getNextDate(nextDue, txn.recurring_frequency);
       }
-
-      // Update last_triggered_date
-      const lastCreatedDate = getNextDate(lastDate, txn.recurring_frequency);
-      let finalDate = lastDate;
-      let check = lastCreatedDate;
-      while (check && check <= today) {
-        finalDate = check;
-        check = getNextDate(check, txn.recurring_frequency);
-      }
-
-      await supabase
-        .from('transactions')
-        .update({ last_triggered_date: finalDate })
-        .eq('id', txn.id);
     }
 
     return created;

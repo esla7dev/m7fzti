@@ -23,7 +23,7 @@ export function useCreateWishlistItem(userId) {
 export function useUpdateWishlistItem(userId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ itemId, data }) => wishlistService.update(itemId, data),
+    mutationFn: ({ itemId, data }) => wishlistService.update(userId, itemId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.wishlist(userId) });
     },
@@ -33,7 +33,7 @@ export function useUpdateWishlistItem(userId) {
 export function useDeleteWishlistItem(userId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (itemId) => wishlistService.delete(itemId),
+    mutationFn: (itemId) => wishlistService.delete(userId, itemId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.wishlist(userId) });
     },

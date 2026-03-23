@@ -25,11 +25,6 @@ export const transactionService = {
     }
   },
 
-  // Get transactions by user ID
-  async getTransactionsByUser(userId) {
-    return this.getAll(userId);
-  },
-
   // Get recent transactions for a user
   async getRecent(userId, limit = 10) {
     try {
@@ -65,13 +60,14 @@ export const transactionService = {
     }
   },
 
-  // Get transaction by ID
-  async getById(transactionId) {
+  // Get transaction by ID (scoped to user)
+  async getById(userId, transactionId) {
     try {
       const { data, error } = await supabase
         .from('transactions')
         .select('*')
         .eq('id', transactionId)
+        .eq('user_id', userId)
         .single();
 
       if (error) throw error;
@@ -97,8 +93,6 @@ export const transactionService = {
         notes: transactionData.notes || null,
         recurring: transactionData.recurring || false,
         recurring_frequency: transactionData.recurring ? (transactionData.recurring_frequency || null) : null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
       };
 
       const { data, error } = await supabase
@@ -115,8 +109,8 @@ export const transactionService = {
     }
   },
 
-  // Update a transaction
-  async update(transactionId, transactionData) {
+  // Update a transaction (scoped to user)
+  async update(userId, transactionId, transactionData) {
     try {
       const row = {
         title: transactionData.title,
@@ -129,13 +123,13 @@ export const transactionService = {
         notes: transactionData.notes || null,
         recurring: transactionData.recurring || false,
         recurring_frequency: transactionData.recurring ? (transactionData.recurring_frequency || null) : null,
-        updated_at: new Date().toISOString()
       };
 
       const { data, error } = await supabase
         .from('transactions')
         .update(row)
         .eq('id', transactionId)
+        .eq('user_id', userId)
         .select()
         .single();
 
@@ -147,13 +141,14 @@ export const transactionService = {
     }
   },
 
-  // Delete a transaction
-  async delete(transactionId) {
+  // Delete a transaction (scoped to user)
+  async delete(userId, transactionId) {
     try {
       const { error } = await supabase
         .from('transactions')
         .delete()
-        .eq('id', transactionId);
+        .eq('id', transactionId)
+        .eq('user_id', userId);
 
       if (error) throw error;
     } catch (error) {

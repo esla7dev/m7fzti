@@ -18,9 +18,22 @@ export const budgetService = {
     }
   },
 
-  // Get budgets by user ID
-  async getBudgetsByUser(userId) {
-    return this.getAll(userId);
+  // Get budget by ID (scoped to user)
+  async getById(userId, budgetId) {
+    try {
+      const { data, error } = await supabase
+        .from('budgets')
+        .select('*')
+        .eq('id', budgetId)
+        .eq('user_id', userId)
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching budget:', error);
+      throw error;
+    }
   },
 
   // Get budget by category
@@ -41,36 +54,12 @@ export const budgetService = {
     }
   },
 
-  // Get budget by ID
-  async getById(budgetId) {
-    try {
-      const { data, error } = await supabase
-        .from('budgets')
-        .select('*')
-        .eq('id', budgetId)
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error fetching budget:', error);
-      throw error;
-    }
-  },
-
   // Create a new budget
   async create(userId, budgetData) {
     try {
       const { data, error } = await supabase
         .from('budgets')
-        .insert([
-          {
-            user_id: userId,
-            ...budgetData,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }
-        ])
+        .insert([{ user_id: userId, ...budgetData }])
         .select()
         .single();
 
@@ -82,16 +71,14 @@ export const budgetService = {
     }
   },
 
-  // Update a budget
-  async update(budgetId, budgetData) {
+  // Update a budget (scoped to user)
+  async update(userId, budgetId, budgetData) {
     try {
       const { data, error } = await supabase
         .from('budgets')
-        .update({
-          ...budgetData,
-          updated_at: new Date().toISOString()
-        })
+        .update(budgetData)
         .eq('id', budgetId)
+        .eq('user_id', userId)
         .select()
         .single();
 
@@ -103,13 +90,14 @@ export const budgetService = {
     }
   },
 
-  // Delete a budget
-  async delete(budgetId) {
+  // Delete a budget (scoped to user)
+  async delete(userId, budgetId) {
     try {
       const { error } = await supabase
         .from('budgets')
         .delete()
-        .eq('id', budgetId);
+        .eq('id', budgetId)
+        .eq('user_id', userId);
 
       if (error) throw error;
     } catch (error) {
@@ -117,9 +105,4 @@ export const budgetService = {
       throw error;
     }
   },
-
-  // Update spent amount
-  async updateSpent(budgetId, spentAmount) {
-    return this.update(budgetId, { spent_amount: spentAmount });
-  }
 };

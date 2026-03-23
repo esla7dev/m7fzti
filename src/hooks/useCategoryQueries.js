@@ -49,7 +49,7 @@ export function useAddCategory(userId) {
 export function useUpdateCategory(userId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (/** @type {{ id: string, name: string, emoji: string }} */ { id, ...rest }) => categoryService.update(id, rest),
+    mutationFn: (/** @type {{ id: string, name: string, emoji: string }} */ { id, ...rest }) => categoryService.update(userId, id, rest),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.categories(userId) });
       toast.success('تم تحديث الفئة بنجاح');
@@ -69,7 +69,7 @@ export function useDeleteCategory(userId) {
       if (usageCount > 0) {
         throw new Error(`لا يمكن حذف هذه الفئة — تُستخدم في ${usageCount} معاملة/ميزانية`);
       }
-      return categoryService.delete(categoryId);
+      return categoryService.delete(userId, categoryId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.categories(userId) });

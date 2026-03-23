@@ -36,11 +36,12 @@ export const notificationService = {
     return data;
   },
 
-  async markAsRead(notificationId) {
+  async markAsRead(userId, notificationId) {
     const { error } = await supabase
       .from('notifications')
       .update({ is_read: true })
-      .eq('id', notificationId);
+      .eq('id', notificationId)
+      .eq('user_id', userId);
     if (error) throw error;
   },
 
@@ -53,11 +54,12 @@ export const notificationService = {
     if (error) throw error;
   },
 
-  async delete(notificationId) {
+  async delete(userId, notificationId) {
     const { error } = await supabase
       .from('notifications')
       .delete()
-      .eq('id', notificationId);
+      .eq('id', notificationId)
+      .eq('user_id', userId);
     if (error) throw error;
   },
 

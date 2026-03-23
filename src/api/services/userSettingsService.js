@@ -24,24 +24,12 @@ export const userSettingsService = {
     }
   },
 
-  // Get user settings
-  async getUserSettings(userId) {
-    return this.get(userId);
-  },
-
   // Create user settings
   async create(userId, settingsData) {
     try {
       const { data, error } = await supabase
         .from('user_settings')
-        .insert([
-          {
-            user_id: userId,
-            ...settingsData,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }
-        ])
+        .insert([{ user_id: userId, ...settingsData }])
         .select()
         .single();
 
@@ -67,20 +55,12 @@ export const userSettingsService = {
     });
   },
 
-  // Create user settings
-  async createUserSettings(settingsData) {
-    return this.create(settingsData.user_id, settingsData);
-  },
-
   // Update user settings
   async update(userId, settingsData) {
     try {
       const { data, error } = await supabase
         .from('user_settings')
-        .update({
-          ...settingsData,
-          updated_at: new Date().toISOString()
-        })
+        .update(settingsData)
         .eq('user_id', userId)
         .select()
         .single();

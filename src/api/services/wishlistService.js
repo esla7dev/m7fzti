@@ -18,18 +18,14 @@ export const wishlistService = {
     }
   },
 
-  // Get wishlist items by user ID
-  async getWishlistByUser(userId) {
-    return this.getAll(userId);
-  },
-
-  // Get wishlist item by ID
-  async getById(itemId) {
+  // Get wishlist item by ID (scoped to user)
+  async getById(userId, itemId) {
     try {
       const { data, error } = await supabase
         .from('wishlist_items')
         .select('*')
         .eq('id', itemId)
+        .eq('user_id', userId)
         .single();
 
       if (error) throw error;
@@ -45,14 +41,7 @@ export const wishlistService = {
     try {
       const { data, error } = await supabase
         .from('wishlist_items')
-        .insert([
-          {
-            user_id: userId,
-            ...itemData,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }
-        ])
+        .insert([{ user_id: userId, ...itemData }])
         .select()
         .single();
 
@@ -64,16 +53,14 @@ export const wishlistService = {
     }
   },
 
-  // Update a wishlist item
-  async update(itemId, itemData) {
+  // Update a wishlist item (scoped to user)
+  async update(userId, itemId, itemData) {
     try {
       const { data, error } = await supabase
         .from('wishlist_items')
-        .update({
-          ...itemData,
-          updated_at: new Date().toISOString()
-        })
+        .update(itemData)
         .eq('id', itemId)
+        .eq('user_id', userId)
         .select()
         .single();
 
@@ -85,13 +72,14 @@ export const wishlistService = {
     }
   },
 
-  // Delete a wishlist item
-  async delete(itemId) {
+  // Delete a wishlist item (scoped to user)
+  async delete(userId, itemId) {
     try {
       const { error } = await supabase
         .from('wishlist_items')
         .delete()
-        .eq('id', itemId);
+        .eq('id', itemId)
+        .eq('user_id', userId);
 
       if (error) throw error;
     } catch (error) {

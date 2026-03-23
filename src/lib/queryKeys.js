@@ -1,7 +1,7 @@
 export const QUERY_KEYS = {
   wallets: (userId) => ['wallets', userId],
   transactions: (userId) => ['transactions', userId],
-  transactionsRecent: (userId) => ['transactions_recent', userId],
+  transactionsRecent: (userId, limit = 10) => ['transactions_recent', userId, limit],
   budgets: (userId) => ['budgets', userId],
   notifications: (userId) => ['notifications', userId],
   notificationCount: (userId) => ['notification_count', userId],

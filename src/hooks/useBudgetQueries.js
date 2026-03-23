@@ -23,7 +23,7 @@ export function useCreateBudget(userId) {
 export function useUpdateBudget(userId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ budgetId, data }) => budgetService.update(budgetId, data),
+    mutationFn: ({ budgetId, data }) => budgetService.update(userId, budgetId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.budgets(userId) });
     },
@@ -33,7 +33,7 @@ export function useUpdateBudget(userId) {
 export function useDeleteBudget(userId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (budgetId) => budgetService.delete(budgetId),
+    mutationFn: (budgetId) => budgetService.delete(userId, budgetId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.budgets(userId) });
     },

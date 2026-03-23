@@ -18,13 +18,14 @@ export const walletService = {
     }
   },
 
-  // Get wallet by ID
-  async getById(walletId) {
+  // Get wallet by ID (scoped to user)
+  async getById(userId, walletId) {
     try {
       const { data, error } = await supabase
         .from('wallets')
         .select('*')
         .eq('id', walletId)
+        .eq('user_id', userId)
         .single();
 
       if (error) throw error;
@@ -35,24 +36,12 @@ export const walletService = {
     }
   },
 
-  // Get wallets by user ID
-  async getWalletsByUser(userId) {
-    return this.getAll(userId);
-  },
-
   // Create a new wallet
   async create(userId, walletData) {
     try {
       const { data, error } = await supabase
         .from('wallets')
-        .insert([
-          {
-            user_id: userId,
-            ...walletData,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }
-        ])
+        .insert([{ user_id: userId, ...walletData }])
         .select()
         .single();
 
@@ -64,16 +53,14 @@ export const walletService = {
     }
   },
 
-  // Update a wallet
-  async update(walletId, walletData) {
+  // Update a wallet (scoped to user)
+  async update(userId, walletId, walletData) {
     try {
       const { data, error } = await supabase
         .from('wallets')
-        .update({
-          ...walletData,
-          updated_at: new Date().toISOString()
-        })
+        .update(walletData)
         .eq('id', walletId)
+        .eq('user_id', userId)
         .select()
         .single();
 
@@ -85,13 +72,14 @@ export const walletService = {
     }
   },
 
-  // Delete a wallet
-  async delete(walletId) {
+  // Delete a wallet (scoped to user)
+  async delete(userId, walletId) {
     try {
       const { error } = await supabase
         .from('wallets')
         .delete()
-        .eq('id', walletId);
+        .eq('id', walletId)
+        .eq('user_id', userId);
 
       if (error) throw error;
     } catch (error) {

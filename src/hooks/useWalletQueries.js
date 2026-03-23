@@ -23,7 +23,7 @@ export function useCreateWallet(userId) {
 export function useUpdateWallet(userId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ walletId, data }) => walletService.update(walletId, data),
+    mutationFn: ({ walletId, data }) => walletService.update(userId, walletId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.wallets(userId) });
     },
@@ -33,7 +33,7 @@ export function useUpdateWallet(userId) {
 export function useDeleteWallet(userId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (walletId) => walletService.delete(walletId),
+    mutationFn: (walletId) => walletService.delete(userId, walletId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.wallets(userId) });
     },

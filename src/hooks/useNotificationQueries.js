@@ -27,7 +27,7 @@ export function useNotificationCount(userId) {
 export function useMarkNotificationRead(userId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (notificationId) => notificationService.markAsRead(notificationId),
+    mutationFn: (notificationId) => notificationService.markAsRead(userId, notificationId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications(userId) });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notificationCount(userId) });

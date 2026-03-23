@@ -12,7 +12,7 @@ export function useTransactions(userId) {
 
 export function useRecentTransactions(userId, limit = 10) {
   return useQuery({
-    queryKey: QUERY_KEYS.transactionsRecent(userId),
+    queryKey: QUERY_KEYS.transactionsRecent(userId, limit),
     queryFn: () => transactionService.getRecent(userId, limit),
     enabled: !!userId,
   });
@@ -33,7 +33,7 @@ export function useCreateTransaction(userId) {
 export function useUpdateTransaction(userId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ transactionId, data }) => transactionService.update(transactionId, data),
+    mutationFn: ({ transactionId, data }) => transactionService.update(userId, transactionId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.transactions(userId) });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.transactionsRecent(userId) });
@@ -45,7 +45,7 @@ export function useUpdateTransaction(userId) {
 export function useDeleteTransaction(userId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (transactionId) => transactionService.delete(transactionId),
+    mutationFn: (transactionId) => transactionService.delete(userId, transactionId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.transactions(userId) });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.transactionsRecent(userId) });

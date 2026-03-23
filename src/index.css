@@ -4,6 +4,12 @@
 
 @layer base {
   :root {
+    --color-primary: #10b981;
+    --color-secondary: #065f46;
+    --color-accent: #34d399;
+    --color-primary-rgb: 16, 185, 129;
+    --color-secondary-rgb: 6, 95, 70;
+    --color-accent-rgb: 52, 211, 153;
     --background: 0 0% 100%;
     --foreground: 0 0% 3.9%;
     --card: 0 0% 100%;
@@ -117,3 +123,15 @@ svg, span, .inline-size {
   min-height: unset;
   min-width: unset;
 }
+
+/* Dynamic theme color utilities (values set via JS on :root) */
+.bg-primary { background-color: var(--color-primary) !important; }
+.bg-secondary { background-color: var(--color-secondary) !important; }
+.bg-accent { background-color: var(--color-accent) !important; }
+.text-primary { color: var(--color-primary) !important; }
+.text-secondary { color: var(--color-secondary) !important; }
+.text-accent { color: var(--color-accent) !important; }
+.border-primary { border-color: var(--color-primary) !important; }
+.hover\:bg-primary:hover { background-color: var(--color-primary) !important; }
+.bg-primary\/10 { background-color: rgba(var(--color-primary-rgb), 0.1) !important; }
+.bg-primary\/20 { background-color: rgba(var(--color-primary-rgb), 0.2) !important; }
