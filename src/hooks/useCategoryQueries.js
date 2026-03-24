@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@/lib/queryKeys';
 import { DEFAULT_CATEGORIES } from '@/lib/defaultCategories';
@@ -17,8 +18,10 @@ export function useAllCategories(userId) {
     staleTime: 1000 * 60 * 5,
   });
 
-  const customMapped = custom.map(c => ({ key: c.id, label: c.name, emoji: c.emoji }));
-  return [...DEFAULT_CATEGORIES, ...customMapped];
+  return useMemo(() => {
+    const customMapped = custom.map(c => ({ key: c.id, label: c.name, emoji: c.emoji }));
+    return [...DEFAULT_CATEGORIES, ...customMapped];
+  }, [custom]);
 }
 
 /** Raw hook that exposes the query result (for mutation invalidation checks). */

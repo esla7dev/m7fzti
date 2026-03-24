@@ -193,5 +193,89 @@ export const transactionService = {
       console.error('Error fetching category total:', error);
       throw error;
     }
-  }
+  },
+
+  // Get transactions for a specific month
+  async getByMonth(userId, year, month) {
+    try {
+      const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching monthly transactions:', error);
+      throw error;
+    }
+  },
+
+  // Create transaction atomically via RPC (updates wallet balances in one DB transaction)
+  async createAtomic(userId, transactionData, fee) {
+    const { data, error } = await supabase.rpc('perform_transaction', {
+      p_user_id: userId,
+      p_title: transactionData.title,
+      p_amount: transactionData.amount,
+      p_type: transactionData.type,
+      p_category: transactionData.category || null,
+      p_wallet_id: transactionData.wallet_id,
+      p_to_wallet_id: transactionData.to_wallet_id || null,
+      p_date: transactionData.date || null,
+      p_notes: transactionData.notes || null,
+      p_recurring: transactionData.recurring || false,
+      p_recurring_frequency: transactionData.recurring ? (transactionData.recurring_frequency || null) : null,
+      p_fee: fee,
+      p_to_wallet_amount: transactionData.to_wallet_id ? transactionData.amount : null,
+    });
+    if (error) throw error;
+    return data;
+  },
+
+  // Delete transaction atomically via RPC (reverses wallet balance changes)
+  async deleteAtomic(userId, transactionId, fee) {
+    const { error } = await supabase.rpc('delete_transaction_atomic', {
+      p_user_id: userId,
+      p_transaction_id: transactionId,
+      p_fee: fee,
+    });
+    if (error) throw error;
+  },
+
+  // Update transaction atomically (delete old + create new via RPCs)
+  async updateAtomic(userId, { originalTx, updatedTx, origFee, newFee }) {
+    // Step 1: Reverse original transaction
+    const { error: delError } = await supabase.rpc('delete_transaction_atomic', {
+      p_user_id: userId,
+      p_transaction_id: originalTx.id,
+      p_fee: origFee,
+    });
+    if (delError) throw delError;
+
+    // Step 2: Create new transaction with updated data
+    const { data, error: createError } = await supabase.rpc('perform_transaction', {
+      p_user_id: userId,
+      p_title: updatedTx.title,
+      p_amount: updatedTx.amount,
+      p_type: updatedTx.type,
+      p_category: updatedTx.category || null,
+      p_wallet_id: updatedTx.wallet_id,
+      p_to_wallet_id: updatedTx.to_wallet_id || null,
+      p_date: updatedTx.date || null,
+      p_notes: updatedTx.notes || null,
+      p_recurring: updatedTx.recurring || false,
+      p_recurring_frequency: updatedTx.recurring ? (updatedTx.recurring_frequency || null) : null,
+      p_fee: newFee,
+      p_to_wallet_amount: updatedTx.to_wallet_id ? updatedTx.amount : null,
+    });
+    if (createError) throw createError;
+    return data;
+  },
 };

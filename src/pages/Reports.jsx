@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -38,7 +38,7 @@ export default function ReportsPage() {
     setCustomDateTo(lastDay.toISOString().split('T')[0]);
   }, []);
 
-  const getFilteredTransactions = () => {
+  const filteredTransactions = useMemo(() => {
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
@@ -94,11 +94,10 @@ export default function ReportsPage() {
           return true;
       }
     });
-  };
+  }, [transactions, timeFilter, customDateFrom, customDateTo]);
 
   // تحليل المصروفات حسب الفئة (مخطط دائري)
-  const getCategoryExpensesData = () => {
-    const filteredTransactions = getFilteredTransactions();
+  const categoryExpenses = useMemo(() => {
     const expensesByCategory = {};
     
     filteredTransactions
@@ -114,32 +113,28 @@ export default function ReportsPage() {
     return Object.entries(expensesByCategory).map(([category, amount]) => ({
       name: getCategoryName(category),
       value: amount,
-      percentage: 0 // سيتم حسابها
+      percentage: 0
     })).sort((a, b) => b.value - a.value);
-  };
+  }, [filteredTransactions, allCategories]);
 
   // أكبر المعاملات
-  const getTopTransactions = () => {
-    const filteredTransactions = getFilteredTransactions();
-    return {
-      expenses: filteredTransactions
-        .filter(t => t.type === 'expense')
-        .sort((a, b) => b.amount - a.amount)
-        .slice(0, 5),
-      income: filteredTransactions
-        .filter(t => t.type === 'income')
-        .sort((a, b) => b.amount - a.amount)
-        .slice(0, 5)
-    };
-  };
+  const topTransactions = useMemo(() => ({
+    expenses: filteredTransactions
+      .filter(t => t.type === 'expense')
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5),
+    income: filteredTransactions
+      .filter(t => t.type === 'income')
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5)
+  }), [filteredTransactions]);
 
   // تحليل أداء المحافظ - صافي التدفقات
-  const getWalletFlows = () => {
-    const filteredTransactions = getFilteredTransactions();
-    const walletFlows = {};
+  const walletFlows = useMemo(() => {
+    const flows = {};
     
     wallets.forEach(wallet => {
-      walletFlows[wallet.id] = {
+      flows[wallet.id] = {
         name: wallet.name,
         color: wallet.color,
         inflow: 0,
@@ -151,31 +146,31 @@ export default function ReportsPage() {
 
     filteredTransactions.forEach(transaction => {
       const walletId = transaction.wallet_id;
-      if (walletFlows[walletId]) {
-        walletFlows[walletId].transactionCount++;
+      if (flows[walletId]) {
+        flows[walletId].transactionCount++;
         
         if (transaction.type === 'income') {
-          walletFlows[walletId].inflow += transaction.amount;
+          flows[walletId].inflow += transaction.amount;
         } else if (transaction.type === 'expense') {
-          walletFlows[walletId].outflow += transaction.amount;
+          flows[walletId].outflow += transaction.amount;
         } else if (transaction.type === 'transfer') {
-          walletFlows[walletId].outflow += transaction.amount;
-          if (transaction.to_wallet_id && walletFlows[transaction.to_wallet_id]) {
-            walletFlows[transaction.to_wallet_id].inflow += transaction.amount;
+          flows[walletId].outflow += transaction.amount;
+          if (transaction.to_wallet_id && flows[transaction.to_wallet_id]) {
+            flows[transaction.to_wallet_id].inflow += transaction.amount;
           }
         }
       }
     });
 
-    Object.keys(walletFlows).forEach(walletId => {
-      walletFlows[walletId].netFlow = walletFlows[walletId].inflow - walletFlows[walletId].outflow;
+    Object.keys(flows).forEach(walletId => {
+      flows[walletId].netFlow = flows[walletId].inflow - flows[walletId].outflow;
     });
 
-    return Object.values(walletFlows);
-  };
+    return Object.values(flows);
+  }, [filteredTransactions, wallets]);
 
   // الاتجاهات الشهرية للفئات
-  const getCategoryTrends = () => {
+  const categoryTrends = useMemo(() => {
     const monthlyData = [];
     
     for (let i = 5; i >= 0; i--) {
@@ -203,10 +198,10 @@ export default function ReportsPage() {
     }
     
     return monthlyData;
-  };
+  }, [transactions, allCategories]);
 
   // مقارنة بالفترات السابقة
-  const getPeriodComparison = () => {
+  const periodComparison = useMemo(() => {
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
@@ -240,9 +235,9 @@ export default function ReportsPage() {
       previous: { income: previousIncome, expenses: previousExpenses },
       changes: { income: incomeChange, expenses: expenseChange }
     };
-  };
+  }, [transactions]);
 
-  const getBudgetComparisonData = () => {
+  const budgetComparisonData = useMemo(() => {
     const now = new Date();
     return budgets.map(budget => {
       const spent = transactions
@@ -259,10 +254,10 @@ export default function ReportsPage() {
         'المُنفق': spent,
       };
     });
-  };
+  }, [budgets, transactions, allCategories]);
 
   // الدخل مقابل المصروفات شهرياً
-  const getMonthlyIncomeVsExpenses = () => {
+  const monthlyComparison = useMemo(() => {
     const data = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date();
@@ -279,13 +274,12 @@ export default function ReportsPage() {
       });
     }
     return data;
-  };
+  }, [transactions]);
 
   // مؤشرات مالية
-  const getFinancialMetrics = () => {
-    const filtered = getFilteredTransactions();
-    const expenses = filtered.filter(t => t.type === 'expense');
-    const income = filtered.filter(t => t.type === 'income');
+  const financialMetrics = useMemo(() => {
+    const expenses = filteredTransactions.filter(t => t.type === 'expense');
+    const income = filteredTransactions.filter(t => t.type === 'income');
     const totalInc = income.reduce((s, t) => s + t.amount, 0);
     const totalExp = expenses.reduce((s, t) => s + t.amount, 0);
     const savingsRate = totalInc > 0 ? ((totalInc - totalExp) / totalInc * 100) : 0;
@@ -300,12 +294,12 @@ export default function ReportsPage() {
       largestExpense: expenses.length > 0 ? expenses.reduce((max, t) => t.amount > max.amount ? t : max) : null,
       avgExpense: expenses.length > 0 ? totalExp / expenses.length : 0,
       categoryCount: new Set(expenses.map(t => t.category)).size,
-      totalTransactions: filtered.length,
+      totalTransactions: filteredTransactions.length,
     };
-  };
+  }, [filteredTransactions]);
 
   // توقعات الإنفاق
-  const getForecastData = () => {
+  const forecastData = useMemo(() => {
     const data = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date();
@@ -330,31 +324,22 @@ export default function ReportsPage() {
       data.push({ month: monthName, 'المصروفات': null, 'التوقع': Math.round(avg) });
     }
     return data;
-  };
+  }, [transactions]);
 
-  const filteredTransactions = getFilteredTransactions();
-  const categoryExpenses = getCategoryExpensesData();
-  const topTransactions = getTopTransactions();
-  const walletFlows = getWalletFlows();
-  const categoryTrends = getCategoryTrends();
-  const periodComparison = getPeriodComparison();
-  const monthlyComparison = getMonthlyIncomeVsExpenses();
-  const financialMetrics = getFinancialMetrics();
-  const forecastData = getForecastData();
-  
-  const totalIncome = filteredTransactions
-    .filter(t => t.type === 'income')
-    .reduce((sum, t) => sum + t.amount, 0);
-    
-  const totalExpenses = filteredTransactions
-    .filter(t => t.type === 'expense')
-    .reduce((sum, t) => sum + t.amount, 0);
+  const totalIncome = useMemo(() =>
+    filteredTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0),
+    [filteredTransactions]
+  );
 
-  const walletBalanceData = wallets.map(wallet => ({
-    name: wallet.name,
-    balance: wallet.balance,
-    color: wallet.color
-  }));
+  const totalExpenses = useMemo(() =>
+    filteredTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0),
+    [filteredTransactions]
+  );
+
+  const walletBalanceData = useMemo(() =>
+    wallets.map(wallet => ({ name: wallet.name, balance: wallet.balance, color: wallet.color })),
+    [wallets]
+  );
 
   // حساب النسب المئوية للمخطط الدائري
   const totalCategoryExpenses = categoryExpenses.reduce((sum, cat) => sum + cat.value, 0);
@@ -443,7 +428,7 @@ export default function ReportsPage() {
             <CardContent>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={getBudgetComparisonData()} layout="vertical" margin={{ right: 30 }}>
+                  <BarChart data={budgetComparisonData} layout="vertical" margin={{ right: 30 }}>
                     <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
                     <XAxis type="number" tick={{ fill: 'rgb(156 163 175)' }} />
                     <YAxis type="category" dataKey="name" tick={{ fill: 'rgb(156 163 175)' }} width={60} />

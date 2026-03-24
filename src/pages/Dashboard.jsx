@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Eye, EyeOff, RefreshCw, GripVertical } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/AuthContext";
 import { useWallets } from "@/hooks/useWalletQueries";
-import { useTransactions, useRecentTransactions } from "@/hooks/useTransactionQueries";
+import { useMonthlyTransactions, useRecentTransactions } from "@/hooks/useTransactionQueries";
 import PageHeader from "../components/PageHeader";
 import { usePullToRefresh } from "../hooks/usePullToRefresh";
 
@@ -39,35 +39,39 @@ export default function Dashboard() {
     error: walletQueryError,
   } = useWallets(user?.id);
   const {
-    data: transactions = [],
+    data: recentTransactions = [],
     refetch: refetchRecent,
     isError: recentTxError,
     error: recentTxQueryError,
   } = useRecentTransactions(user?.id, 10);
   const {
-    data: allTransactions = [],
-    refetch: refetchAll,
-    isError: allTxError,
-    error: allTxQueryError,
-  } = useTransactions(user?.id);
+    data: monthlyTransactions = [],
+    refetch: refetchMonthly,
+    isError: monthlyTxError,
+    error: monthlyTxQueryError,
+  } = useMonthlyTransactions(user?.id);
 
   const refetchAll_ = useCallback(() => {
     refetchWallets();
     refetchRecent();
-    refetchAll();
-  }, [refetchWallets, refetchRecent, refetchAll]);
+    refetchMonthly();
+  }, [refetchWallets, refetchRecent, refetchMonthly]);
 
   useEffect(() => {
     if (user?.id) {
-      // Process recurring transactions once on mount
-      import('@/utils/recurringProcessor').then(({ processRecurringTransactions }) => {
-        processRecurringTransactions(user.id).then((count) => {
-          if (count > 0) {
-            toast.info(`تم إنشاء ${count} معاملة متكررة تلقائياً`);
-            refetchAll_();
-          }
+      // Process recurring transactions once per session
+      const sessionKey = `recurring_processed_${user.id}`;
+      if (!sessionStorage.getItem(sessionKey)) {
+        sessionStorage.setItem(sessionKey, '1');
+        import('@/utils/recurringProcessor').then(({ processRecurringTransactions }) => {
+          processRecurringTransactions(user.id).then((count) => {
+            if (count > 0) {
+              toast.info(`تم إنشاء ${count} معاملة متكررة تلقائياً`);
+              refetchAll_();
+            }
+          });
         });
-      });
+      }
       // Check for upcoming recurring reminders
       import('@/utils/recurringReminders').then(({ checkRecurringReminders }) => {
         checkRecurringReminders(user.id).catch(() => {});
@@ -76,18 +80,18 @@ export default function Dashboard() {
   }, [user?.id]);
 
   useEffect(() => {
-    const queryError = walletQueryError || recentTxQueryError || allTxQueryError;
-    if (walletsError || recentTxError || allTxError) {
+    const queryError = walletQueryError || recentTxQueryError || monthlyTxQueryError;
+    if (walletsError || recentTxError || monthlyTxError) {
       toast.error(queryError?.message || 'فشل تحميل البيانات من Supabase');
       console.error('Dashboard data query error:', queryError);
     }
   }, [
     walletsError,
     recentTxError,
-    allTxError,
+    monthlyTxError,
     walletQueryError,
     recentTxQueryError,
-    allTxQueryError,
+    monthlyTxQueryError,
   ]);
 
   const { isPulling, pullDistance, threshold } = usePullToRefresh(refetchAll_, containerRef);
@@ -101,37 +105,32 @@ export default function Dashboard() {
     localStorage.setItem('dashboard_widget_order', JSON.stringify(newOrder));
   }, [widgetOrder]);
 
-  const totalBalance = wallets.reduce((sum, wallet) => sum + (wallet.balance || 0), 0);
+  const totalBalance = useMemo(() =>
+    wallets.reduce((sum, wallet) => sum + (wallet.balance || 0), 0),
+    [wallets]
+  );
 
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
+  const thisMonthIncome = useMemo(() =>
+    monthlyTransactions
+      .filter(t => t.type === 'income')
+      .reduce((sum, t) => sum + t.amount, 0),
+    [monthlyTransactions]
+  );
 
-  const thisMonthIncome = allTransactions
-    .filter(t => {
-        const transactionDate = new Date(t.date);
-        return t.type === 'income' && 
-               transactionDate.getMonth() === currentMonth &&
-               transactionDate.getFullYear() === currentYear;
-    })
-    .reduce((sum, t) => sum + t.amount, 0);
-    
-  const thisMonthExpenses = allTransactions
-    .filter(t => {
-        const transactionDate = new Date(t.date);
-        return t.type === 'expense' && 
-               transactionDate.getMonth() === currentMonth &&
-               transactionDate.getFullYear() === currentYear;
-    })
-    .reduce((sum, t) => sum + t.amount, 0);
+  const thisMonthExpenses = useMemo(() =>
+    monthlyTransactions
+      .filter(t => t.type === 'expense')
+      .reduce((sum, t) => sum + t.amount, 0),
+    [monthlyTransactions]
+  );
 
   const renderWidget = (id) => {
     switch (id) {
       case 'balance': return <BalanceCard balance={totalBalance} visible={balanceVisible} walletCount={wallets.length} />;
       case 'stats': return <QuickStats income={thisMonthIncome} expenses={thisMonthExpenses} visible={balanceVisible} />;
       case 'actions': return <QuickActions />;
-      case 'budget': return <BudgetList userId={user?.id} transactions={allTransactions} />;
-      case 'recent': return <RecentTransactions transactions={transactions} onRefresh={refetchAll_} />;
+      case 'budget': return <BudgetList userId={user?.id} transactions={monthlyTransactions} />;
+      case 'recent': return <RecentTransactions transactions={recentTransactions} onRefresh={refetchAll_} />;
       default: return null;
     }
   };

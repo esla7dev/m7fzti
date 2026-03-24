@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Plus, Search, RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -7,14 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
-import { supabase } from "@/api/supabaseClient";
-import { transactionService } from "@/api/services/transactionService";
-import { budgetService } from "@/api/services/budgetService";
 import { notificationService } from "@/api/services/notificationService";
 import PageHeader from "../components/PageHeader";
 import { usePullToRefresh } from "../hooks/usePullToRefresh";
-import { useTransactions } from "@/hooks/useTransactionQueries";
+import { useTransactions, useCreateTransaction, useUpdateTransaction, useDeleteTransaction } from "@/hooks/useTransactionQueries";
 import { useWallets } from "@/hooks/useWalletQueries";
+import { useBudgets } from "@/hooks/useBudgetQueries";
 import { useAllCategories } from "@/hooks/useCategoryQueries";
 
 
@@ -39,10 +37,15 @@ export default function TransactionsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: transactions = [], isLoading, refetch: refetchTransactions } = useTransactions(user?.id);
   const { data: wallets = [], refetch: refetchWallets } = useWallets(user?.id);
+  const { data: budgets = [] } = useBudgets(user?.id);
   const allCategories = useAllCategories(user?.id);
   const getCatLabel = (key) => allCategories.find(c => c.key === key)?.label ?? key;
   const loading = isLoading;
   const refetchAll = useCallback(() => { refetchTransactions(); refetchWallets(); }, [refetchTransactions, refetchWallets]);
+
+  const createTransaction = useCreateTransaction(user?.id);
+  const updateTransaction = useUpdateTransaction(user?.id);
+  const deleteTransaction = useDeleteTransaction(user?.id);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addModalDefaultType, setAddModalDefaultType] = useState(null);
   const [editingTransaction, setEditingTransaction] = useState(null);
@@ -88,32 +91,14 @@ export default function TransactionsPage() {
       const wallet = wallets.find(w => w.id === transactionData.wallet_id);
       const fee = calculateFee(wallet, transactionData.amount, transactionData.type === 'transfer');
 
-      // Use atomic RPC to create transaction + update wallet balances in one DB transaction
-      const { data: txnJson, error: rpcError } = await supabase.rpc('perform_transaction', {
-        p_user_id: user.id,
-        p_title: transactionData.title,
-        p_amount: transactionData.amount,
-        p_type: transactionData.type,
-        p_category: transactionData.category || null,
-        p_wallet_id: transactionData.wallet_id,
-        p_to_wallet_id: transactionData.to_wallet_id || null,
-        p_date: transactionData.date || null,
-        p_notes: transactionData.notes || null,
-        p_recurring: transactionData.recurring || false,
-        p_recurring_frequency: transactionData.recurring ? (transactionData.recurring_frequency || null) : null,
-        p_fee: fee,
-        p_to_wallet_amount: transactionData.to_wallet_id ? transactionData.amount : null,
-      });
-
-      if (rpcError) throw rpcError;
-      const transaction = txnJson;
+      const transaction = await createTransaction.mutateAsync({ transactionData, fee });
 
       // Check budget alerts for expense transactions
       if (transactionData.type === 'expense' && userSettings?.notifications_enabled !== false) {
         const EXPENSE_CATS = Object.fromEntries(allCategories.map(c => [c.key, c.label]));
         if (userSettings?.budget_alerts !== false) {
           try {
-            const budget = await budgetService.getByCategory(user.id, transactionData.category);
+            const budget = budgets.find(b => b.category === transactionData.category);
             if (budget && budget.limit_amount > 0) {
               const now = new Date();
               const spent = [...transactions, transaction]
@@ -139,14 +124,13 @@ export default function TransactionsPage() {
           }
         }
         // Large transaction alert
-        const threshold = userSettings?.large_transaction_threshold ?? 5000;
-        if (threshold > 0 && transactionData.amount >= threshold) {
-          toast.warning(`معاملة كبيرة: ${transactionData.amount.toLocaleString()} ج.م تجاوزت حد ${threshold.toLocaleString()} ج.م`);
+        const alertThreshold = userSettings?.large_transaction_threshold ?? 5000;
+        if (alertThreshold > 0 && transactionData.amount >= alertThreshold) {
+          toast.warning(`معاملة كبيرة: ${transactionData.amount.toLocaleString()} ج.م تجاوزت حد ${alertThreshold.toLocaleString()} ج.م`);
           notificationService.create(user.id, { type: 'large_transaction', title: `معاملة كبيرة: ${transactionData.title}`, message: `${transactionData.amount.toLocaleString()} ج.م` }).catch(() => {});
         }
       }
       setShowAddModal(false);
-      refetchAll();
       toast.success("Transaction added successfully");
     } catch (error) {
       console.error("Error adding transaction:", error);
@@ -161,41 +145,15 @@ export default function TransactionsPage() {
       const updatedTx = { ...transactionData, amount: parseFloat(transactionData.amount) };
       const originalTx = { ...editingTransaction };
       
-      // Delete the original and create a new one atomically to recalculate balances
-      // Step 1: Reverse original transaction
       const origWallet = wallets.find(w => w.id === originalTx.wallet_id);
       const origFee = calculateFee(origWallet, originalTx.amount, originalTx.type === 'transfer');
       
-      const { error: delError } = await supabase.rpc('delete_transaction_atomic', {
-        p_user_id: user.id,
-        p_transaction_id: originalTx.id,
-        p_fee: origFee,
-      });
-      if (delError) throw delError;
-
-      // Step 2: Create new transaction with updated data
       const newWallet = wallets.find(w => w.id === updatedTx.wallet_id);
       const newFee = calculateFee(newWallet, updatedTx.amount, updatedTx.type === 'transfer');
 
-      const { error: createError } = await supabase.rpc('perform_transaction', {
-        p_user_id: user.id,
-        p_title: updatedTx.title,
-        p_amount: updatedTx.amount,
-        p_type: updatedTx.type,
-        p_category: updatedTx.category || null,
-        p_wallet_id: updatedTx.wallet_id,
-        p_to_wallet_id: updatedTx.to_wallet_id || null,
-        p_date: updatedTx.date || null,
-        p_notes: updatedTx.notes || null,
-        p_recurring: updatedTx.recurring || false,
-        p_recurring_frequency: updatedTx.recurring ? (updatedTx.recurring_frequency || null) : null,
-        p_fee: newFee,
-        p_to_wallet_amount: updatedTx.to_wallet_id ? updatedTx.amount : null,
-      });
-      if (createError) throw createError;
+      await updateTransaction.mutateAsync({ originalTx, updatedTx, origFee, newFee });
       
       setEditingTransaction(null);
-      refetchAll();
       toast.success("Transaction updated successfully");
 
     } catch (error) {
@@ -212,15 +170,9 @@ export default function TransactionsPage() {
       const fromWallet = wallets.find(w => w.id === wallet_id);
       const fee = calculateFee(fromWallet, amount, type === 'transfer');
 
-      const { error } = await supabase.rpc('delete_transaction_atomic', {
-        p_user_id: user.id,
-        p_transaction_id: id,
-        p_fee: fee,
-      });
-      if (error) throw error;
+      await deleteTransaction.mutateAsync({ transactionId: id, fee });
 
       setDeletingTransaction(null);
-      refetchAll();
       toast.success("Transaction deleted successfully");
     } catch (error) {
       console.error("Error deleting transaction:", error);
@@ -228,7 +180,7 @@ export default function TransactionsPage() {
     }
   };
 
-  const filteredTransactions = transactions.filter(transaction => {
+  const filteredTransactions = useMemo(() => transactions.filter(transaction => {
     const matchesSearch = transaction.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          transaction.notes?.toLowerCase().includes(searchTerm.toLowerCase());
     
@@ -282,25 +234,24 @@ export default function TransactionsPage() {
     if (filters.amountMax && matchesAmount) matchesAmount = transaction.amount <= parseFloat(filters.amountMax);
     
     return matchesSearch && matchesType && matchesCategory && matchesWallet && matchesDate && matchesAmount;
-  });
+  }), [transactions, searchTerm, activeTab, filters]);
 
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
+  const { thisMonthIncomeCount, thisMonthExpenseCount } = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
 
-  const thisMonthIncomeCount = transactions.filter(t => {
-    const transactionDate = new Date(t.date);
-    return t.type === 'income' &&
-           transactionDate.getMonth() === currentMonth &&
-           transactionDate.getFullYear() === currentYear;
-  }).length;
-
-  const thisMonthExpenseCount = transactions.filter(t => {
-    const transactionDate = new Date(t.date);
-    return t.type === 'expense' &&
-           transactionDate.getMonth() === currentMonth &&
-           transactionDate.getFullYear() === currentYear;
-  }).length;
+    let incomeCount = 0;
+    let expenseCount = 0;
+    for (const t of transactions) {
+      const d = new Date(t.date);
+      if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
+        if (t.type === 'income') incomeCount++;
+        else if (t.type === 'expense') expenseCount++;
+      }
+    }
+    return { thisMonthIncomeCount: incomeCount, thisMonthExpenseCount: expenseCount };
+  }, [transactions]);
 
   if (loading) {
     return (
